@@ -17,7 +17,9 @@ typedef struct {
 } Point;
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s <image> <width> <height> <x1,y1> [x2,y2 ...]\n", prog);
+    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> <x1,y1> [x2,y2 ...]\n", prog);
+    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114.\n");
+    fprintf(stderr, "Example: %s -i ninja.png -s 80x114 -o ninja.gif 35,24 159,24 278,24 397,24\n", prog);
 }
 
 static bool parse_coord(const char *arg, Point *out) {
@@ -43,6 +45,32 @@ static bool parse_coord(const char *arg, Point *out) {
     return true;
 }
 
+static bool parse_size(const char *arg, int *out_w, int *out_h) {
+    const char *x = strchr(arg, 'x');
+    if (!x) {
+        x = strchr(arg, 'X');
+    }
+    if (!x) {
+        return false;
+    }
+
+    errno = 0;
+    char *endptr = NULL;
+    long w = strtol(arg, &endptr, 10);
+    if (errno != 0 || endptr != x || w <= 0) {
+        return false;
+    }
+
+    long h = strtol(x + 1, &endptr, 10);
+    if (errno != 0 || *endptr != '\0' || h <= 0) {
+        return false;
+    }
+
+    *out_w = (int)w;
+    *out_h = (int)h;
+    return true;
+}
+
 static bool copy_frame(uint8_t *dst, const uint8_t *src, int src_w, int src_h, int frame_w, int frame_h, Point origin) {
     if (origin.x < 0 || origin.y < 0) {
         return false;
@@ -62,32 +90,82 @@ static bool copy_frame(uint8_t *dst, const uint8_t *src, int src_w, int src_h, i
 }
 
 int main(int argc, char **argv) {
-    if (argc < 5) {
+    if (argc < 2) {
         usage(argv[0]);
         return 1;
     }
 
-    const char *image_path = argv[1];
+    const char *input_path = NULL;
+    const char *output_path = NULL;
+    int frame_w = 0;
+    int frame_h = 0;
 
-    errno = 0;
-    char *end = NULL;
-    long frame_w_long = strtol(argv[2], &end, 10);
-    if (errno != 0 || *end != '\0' || frame_w_long <= 0) {
-        fprintf(stderr, "Invalid frame width: %s\n", argv[2]);
+    int argi = 1;
+    for (; argi < argc; ++argi) {
+        const char *arg = argv[argi];
+        if (strcmp(arg, "-i") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -i\n");
+                usage(argv[0]);
+                return 1;
+            }
+            input_path = argv[++argi];
+            continue;
+        }
+        if (strcmp(arg, "-o") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -o\n");
+                usage(argv[0]);
+                return 1;
+            }
+            output_path = argv[++argi];
+            continue;
+        }
+        if (strcmp(arg, "-s") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -s\n");
+                usage(argv[0]);
+                return 1;
+            }
+            if (!parse_size(argv[argi + 1], &frame_w, &frame_h)) {
+                fprintf(stderr, "Invalid size (expected <width>x<height>): %s\n", argv[argi + 1]);
+                usage(argv[0]);
+                return 1;
+            }
+            ++argi;
+            continue;
+        }
+        if (arg[0] == '-') {
+            fprintf(stderr, "Unknown option: %s\n", arg);
+            usage(argv[0]);
+            return 1;
+        }
+        break;
+    }
+
+    if (!input_path) {
+        fprintf(stderr, "Input image is required (-i)\n");
+        usage(argv[0]);
+        return 1;
+    }
+    if (!output_path) {
+        fprintf(stderr, "Output image is required (-o)\n");
+        usage(argv[0]);
+        return 1;
+    }
+    if (frame_w == 0 || frame_h == 0) {
+        fprintf(stderr, "Frame size is required (-s <width>x<height>)\n");
+        usage(argv[0]);
         return 1;
     }
 
-    errno = 0;
-    long frame_h_long = strtol(argv[3], &end, 10);
-    if (errno != 0 || *end != '\0' || frame_h_long <= 0) {
-        fprintf(stderr, "Invalid frame height: %s\n", argv[3]);
+    const int frame_count = argc - argi;
+    if (frame_count <= 0) {
+        fprintf(stderr, "At least one coordinate is required\n");
+        usage(argv[0]);
         return 1;
     }
 
-    const int frame_w = (int)frame_w_long;
-    const int frame_h = (int)frame_h_long;
-
-    const int frame_count = argc - 4;
     Point *points = (Point *)malloc(sizeof(Point) * (size_t)frame_count);
     if (!points) {
         fprintf(stderr, "Memory allocation failed\n");
@@ -95,22 +173,21 @@ int main(int argc, char **argv) {
     }
 
     for (int i = 0; i < frame_count; ++i) {
-        if (!parse_coord(argv[4 + i], &points[i])) {
-            fprintf(stderr, "Invalid coordinate: %s (expected x,y)\n", argv[4 + i]);
+        if (!parse_coord(argv[argi + i], &points[i])) {
+            fprintf(stderr, "Invalid coordinate: %s (expected x,y)\n", argv[argi + i]);
             free(points);
             return 1;
         }
     }
 
     int img_w = 0, img_h = 0, channels = 0;
-    uint8_t *img = stbi_load(image_path, &img_w, &img_h, &channels, 4);
+    uint8_t *img = stbi_load(input_path, &img_w, &img_h, &channels, 4);
     if (!img) {
-        fprintf(stderr, "Failed to load image '%s': %s\n", image_path, stbi_failure_reason());
+        fprintf(stderr, "Failed to load image '%s': %s\n", input_path, stbi_failure_reason());
         free(points);
         return 1;
     }
 
-    const char *output_path = "spritechop.gif";
     GifWriter writer = {0};
     const uint32_t delay_cs = 8; // 80 ms per frame
 
