@@ -17,8 +17,8 @@ typedef struct {
 } Point;
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-f <delay cs>] <x1,y1> [x2,y2 ...]\n", prog);
-    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -f sets frame delay in centiseconds (default 8 = 80ms).\n");
+    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-so <out width>x<out height>] [-f <delay cs>] <x1,y1> [x2,y2 ...]\n", prog);
+    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -so rescales each frame from the input size, and -f sets frame delay in centiseconds (default 8 = 80ms).\n");
     fprintf(stderr, "Example: %s -i ninja.png -s 80x114 -o ninja.gif 35,24 159,24 278,24 397,24\n", prog);
 }
 
@@ -71,6 +71,23 @@ static bool parse_size(const char *arg, int *out_w, int *out_h) {
     return true;
 }
 
+static void resize_nearest(const uint8_t *src, int src_w, int src_h, uint8_t *dst, int dst_w, int dst_h) {
+    for (int y = 0; y < dst_h; ++y) {
+        const int src_y = (y * src_h) / dst_h;
+        const uint8_t *src_row = src + ((size_t)src_y * (size_t)src_w * 4);
+        uint8_t *dst_row = dst + ((size_t)y * (size_t)dst_w * 4);
+        for (int x = 0; x < dst_w; ++x) {
+            const int src_x = (x * src_w) / dst_w;
+            const uint8_t *src_px = src_row + (size_t)src_x * 4;
+            uint8_t *dst_px = dst_row + (size_t)x * 4;
+            dst_px[0] = src_px[0];
+            dst_px[1] = src_px[1];
+            dst_px[2] = src_px[2];
+            dst_px[3] = src_px[3];
+        }
+    }
+}
+
 static bool copy_frame(uint8_t *dst, const uint8_t *src, int src_w, int src_h, int frame_w, int frame_h, Point origin) {
     if (origin.x < 0 || origin.y < 0) {
         return false;
@@ -99,6 +116,8 @@ int main(int argc, char **argv) {
     const char *output_path = NULL;
     int frame_w = 0;
     int frame_h = 0;
+    int output_w = 0;
+    int output_h = 0;
     uint32_t delay_cs = 8; // default to 80 ms per frame
 
     int argi = 1;
@@ -130,6 +149,20 @@ int main(int argc, char **argv) {
             }
             if (!parse_size(argv[argi + 1], &frame_w, &frame_h)) {
                 fprintf(stderr, "Invalid size (expected <width>x<height>): %s\n", argv[argi + 1]);
+                usage(argv[0]);
+                return 1;
+            }
+            ++argi;
+            continue;
+        }
+        if (strcmp(arg, "-so") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -so\n");
+                usage(argv[0]);
+                return 1;
+            }
+            if (!parse_size(argv[argi + 1], &output_w, &output_h)) {
+                fprintf(stderr, "Invalid output size (expected <width>x<height>): %s\n", argv[argi + 1]);
                 usage(argv[0]);
                 return 1;
             }
@@ -177,6 +210,10 @@ int main(int argc, char **argv) {
         usage(argv[0]);
         return 1;
     }
+    if (output_w == 0 || output_h == 0) {
+        output_w = frame_w;
+        output_h = frame_h;
+    }
 
     const int frame_count = argc - argi;
     if (frame_count <= 0) {
@@ -209,7 +246,7 @@ int main(int argc, char **argv) {
 
     GifWriter writer = {0};
 
-    if (!GifBegin(&writer, output_path, (uint32_t)frame_w, (uint32_t)frame_h, delay_cs, 8, false)) {
+    if (!GifBegin(&writer, output_path, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
         fprintf(stderr, "Failed to open output GIF for writing\n");
         stbi_image_free(img);
         free(points);
@@ -224,6 +261,18 @@ int main(int argc, char **argv) {
         free(points);
         return 1;
     }
+    uint8_t *scaled_buffer = frame_buffer;
+    if (output_w != frame_w || output_h != frame_h) {
+        scaled_buffer = (uint8_t *)malloc((size_t)output_w * (size_t)output_h * 4);
+        if (!scaled_buffer) {
+            fprintf(stderr, "Memory allocation failed\n");
+            free(frame_buffer);
+            GifEnd(&writer);
+            stbi_image_free(img);
+            free(points);
+            return 1;
+        }
+    }
 
     bool ok = true;
     for (int i = 0; i < frame_count; ++i) {
@@ -234,7 +283,13 @@ int main(int argc, char **argv) {
             break;
         }
 
-        if (!GifWriteFrame(&writer, frame_buffer, (uint32_t)frame_w, (uint32_t)frame_h, delay_cs, 8, false)) {
+        const uint8_t *frame_to_write = frame_buffer;
+        if (scaled_buffer != frame_buffer) {
+            resize_nearest(frame_buffer, frame_w, frame_h, scaled_buffer, output_w, output_h);
+            frame_to_write = scaled_buffer;
+        }
+
+        if (!GifWriteFrame(&writer, frame_to_write, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
             fprintf(stderr, "Failed to write frame %d\n", i + 1);
             ok = false;
             break;
@@ -243,6 +298,9 @@ int main(int argc, char **argv) {
 
     GifEnd(&writer);
     stbi_image_free(img);
+    if (scaled_buffer != frame_buffer) {
+        free(scaled_buffer);
+    }
     free(frame_buffer);
     free(points);
 
@@ -251,6 +309,6 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    printf("Wrote %d frame(s) to %s (%dx%d)\n", frame_count, output_path, frame_w, frame_h);
+    printf("Wrote %d frame(s) to %s (%dx%d)\n", frame_count, output_path, output_w, output_h);
     return 0;
 }

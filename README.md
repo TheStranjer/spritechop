@@ -16,12 +16,13 @@ Requirements: a C compiler (e.g., `gcc`) and `make`. All other dependencies ship
 ## Usage
 
 ```
-spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-f DELAY_CS] X1,Y1 [X2,Y2 ...]
+spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-so OUT_WIDTHxOUT_HEIGHT] [-f DELAY_CS] X1,Y1 [X2,Y2 ...]
 ```
 
 - `-i` input image (PNG, JPG, etc.)
 - `-o` output GIF path
 - `-s` frame size, e.g., `80x114`
+- `-so` output size override; scales each extracted frame from `-s` to `OUT_WIDTHxOUT_HEIGHT` with nearest-neighbor sampling (no anti-aliasing)
 - `-f` frame delay in centiseconds (default `8` → 80 ms)
 - Coordinates are the top-left pixel of each frame inside the source image.
 
