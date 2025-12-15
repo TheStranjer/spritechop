@@ -17,8 +17,8 @@ typedef struct {
 } Point;
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> <x1,y1> [x2,y2 ...]\n", prog);
-    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114.\n");
+    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-f <delay cs>] <x1,y1> [x2,y2 ...]\n", prog);
+    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -f sets frame delay in centiseconds (default 8 = 80ms).\n");
     fprintf(stderr, "Example: %s -i ninja.png -s 80x114 -o ninja.gif 35,24 159,24 278,24 397,24\n", prog);
 }
 
@@ -99,6 +99,7 @@ int main(int argc, char **argv) {
     const char *output_path = NULL;
     int frame_w = 0;
     int frame_h = 0;
+    uint32_t delay_cs = 8; // default to 80 ms per frame
 
     int argi = 1;
     for (; argi < argc; ++argi) {
@@ -132,6 +133,24 @@ int main(int argc, char **argv) {
                 usage(argv[0]);
                 return 1;
             }
+            ++argi;
+            continue;
+        }
+        if (strcmp(arg, "-f") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -f\n");
+                usage(argv[0]);
+                return 1;
+            }
+            errno = 0;
+            char *endptr = NULL;
+            long parsed_delay = strtol(argv[argi + 1], &endptr, 10);
+            if (errno != 0 || *endptr != '\0' || parsed_delay <= 0 || (unsigned long)parsed_delay > UINT32_MAX) {
+                fprintf(stderr, "Invalid frame delay (expected positive centiseconds): %s\n", argv[argi + 1]);
+                usage(argv[0]);
+                return 1;
+            }
+            delay_cs = (uint32_t)parsed_delay;
             ++argi;
             continue;
         }
@@ -189,7 +208,6 @@ int main(int argc, char **argv) {
     }
 
     GifWriter writer = {0};
-    const uint32_t delay_cs = 8; // 80 ms per frame
 
     if (!GifBegin(&writer, output_path, (uint32_t)frame_w, (uint32_t)frame_h, delay_cs, 8, false)) {
         fprintf(stderr, "Failed to open output GIF for writing\n");

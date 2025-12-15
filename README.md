@@ -1,6 +1,6 @@
 # spritechop
 
-Small CLI that slices frames out of a sprite sheet and packs them into an animated GIF. You give it an input image, the frame size, and a list of top-left coordinates to copy; it writes a GIF with an 80 ms delay between frames.
+Small CLI that slices frames out of a sprite sheet and packs them into an animated GIF. You give it an input image, the frame size, and a list of top-left coordinates to copy; it writes a GIF with a configurable frame delay (default 80 ms).
 
 ## Build & Install
 
@@ -16,12 +16,13 @@ Requirements: a C compiler (e.g., `gcc`) and `make`. All other dependencies ship
 ## Usage
 
 ```
-spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT X1,Y1 [X2,Y2 ...]
+spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-f DELAY_CS] X1,Y1 [X2,Y2 ...]
 ```
 
 - `-i` input image (PNG, JPG, etc.)
 - `-o` output GIF path
 - `-s` frame size, e.g., `80x114`
+- `-f` frame delay in centiseconds (default `8` → 80 ms)
 - Coordinates are the top-left pixel of each frame inside the source image.
 
 Example:
@@ -31,4 +32,4 @@ Example:
   35,24 159,24 278,24 397,24
 ```
 
-The command above emits a 4-frame `ninja.gif` using 80 ms per frame.
+The command above emits a 4-frame `ninja.gif` using 80 ms per frame by default; pass `-f` to change it.
