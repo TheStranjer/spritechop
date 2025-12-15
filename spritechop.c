@@ -6,10 +6,10 @@
 #include <string.h>
 
 #define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#include "include/stb_image.h"
 
 #define GIF_H_IMPLEMENTATION
-#include "gif.h"
+#include "include/gif.h"
 
 typedef struct {
     int x;
