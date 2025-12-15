@@ -16,7 +16,7 @@ Requirements: a C compiler (e.g., `gcc`) and `make`. All other dependencies ship
 ## Usage
 
 ```
-spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-so OUT_WIDTHxOUT_HEIGHT] [-f DELAY_CS] X1,Y1 [X2,Y2 ...]
+spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-so OUT_WIDTHxOUT_HEIGHT] [-f DELAY_CS] [-t HEX_COLOR] X1,Y1 [X2,Y2 ...]
 ```
 
 - `-i` input image (PNG, JPG, etc.)
@@ -24,6 +24,7 @@ spritechop -i INPUT -o OUTPUT -s WIDTHxHEIGHT [-so OUT_WIDTHxOUT_HEIGHT] [-f DEL
 - `-s` frame size, e.g., `80x114`
 - `-so` output size override; scales each extracted frame from `-s` to `OUT_WIDTHxOUT_HEIGHT` with nearest-neighbor sampling (no anti-aliasing)
 - `-f` frame delay in centiseconds (default `8` → 80 ms)
+- `-t` transparency color to treat as fully transparent (accepts `ff00ff` or `#ff00ff`, case-insensitive)
 - Coordinates are the top-left pixel of each frame inside the source image.
 
 Example:

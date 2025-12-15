@@ -62,6 +62,17 @@
 
 const int kGifTransIndex = 0;
 
+static uint8_t kGifTransRed = 0;
+static uint8_t kGifTransGreen = 0;
+static uint8_t kGifTransBlue = 0;
+
+void GifSetTransparentColor(uint8_t r, uint8_t g, uint8_t b)
+{
+    kGifTransRed = r;
+    kGifTransGreen = g;
+    kGifTransBlue = b;
+}
+
 typedef struct
 {
     int bitDepth;
@@ -381,6 +392,11 @@ int GifPickChangedPixels( const uint8_t* lastFrame, uint8_t* frame, int numPixel
 void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_t width, uint32_t height, int bitDepth, bool buildForDither, GifPalette* pPal )
 {
     pPal->bitDepth = bitDepth;
+    memset(pPal->r, 0, sizeof(pPal->r));
+    memset(pPal->g, 0, sizeof(pPal->g));
+    memset(pPal->b, 0, sizeof(pPal->b));
+    memset(pPal->treeSplitElt, 0, sizeof(pPal->treeSplitElt));
+    memset(pPal->treeSplit, 0, sizeof(pPal->treeSplit));
 
     // SplitPalette is destructive (it sorts the pixels by color) so
     // we must create a copy of the image for it to destroy
@@ -392,6 +408,23 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
     if(lastFrame)
         numPixels = GifPickChangedPixels(lastFrame, destroyableImage, numPixels);
 
+    int writeIdx = 0;
+    for (int i = 0; i < numPixels; ++i)
+    {
+        const uint8_t alpha = destroyableImage[i * 4 + 3];
+        if (alpha == 0) continue;
+
+        if (writeIdx != i)
+        {
+            destroyableImage[writeIdx * 4 + 0] = destroyableImage[i * 4 + 0];
+            destroyableImage[writeIdx * 4 + 1] = destroyableImage[i * 4 + 1];
+            destroyableImage[writeIdx * 4 + 2] = destroyableImage[i * 4 + 2];
+            destroyableImage[writeIdx * 4 + 3] = destroyableImage[i * 4 + 3];
+        }
+        ++writeIdx;
+    }
+    numPixels = writeIdx;
+
     GifSplitPalette(destroyableImage, numPixels, 1, 0, buildForDither, pPal);
 
     GIF_TEMP_FREE(destroyableImage);
@@ -400,7 +433,9 @@ void GifMakePalette( const uint8_t* lastFrame, const uint8_t* nextFrame, uint32_
     pPal->treeSplit[1 << (bitDepth-1)] = 0;
     pPal->treeSplitElt[1 << (bitDepth-1)] = 0;
 
-    pPal->r[0] = pPal->g[0] = pPal->b[0] = 0;
+    pPal->r[0] = kGifTransRed;
+    pPal->g[0] = kGifTransGreen;
+    pPal->b[0] = kGifTransBlue;
 }
 
 // Implements Floyd-Steinberg dithering, writes palette value to alpha
@@ -431,6 +466,16 @@ void GifDitherImage( const uint8_t* lastFrame, const uint8_t* nextFrame, uint8_t
             int32_t rr = (nextPix[0] + 127) / 256;
             int32_t gg = (nextPix[1] + 127) / 256;
             int32_t bb = (nextPix[2] + 127) / 256;
+            int32_t aa = (nextPix[3] + 127) / 256;
+
+            if (aa == 0)
+            {
+                nextPix[0] = kGifTransRed;
+                nextPix[1] = kGifTransGreen;
+                nextPix[2] = kGifTransBlue;
+                nextPix[3] = kGifTransIndex;
+                continue;
+            }
 
             // if it happens that we want the color from last frame, then just write out
             // a transparent pixel
@@ -520,7 +565,14 @@ void GifThresholdImage( const uint8_t* lastFrame, const uint8_t* nextFrame, uint
     {
         // if a previous color is available, and it matches the current color,
         // set the pixel to transparent
-        if(lastFrame &&
+        if(nextFrame[3] == 0)
+        {
+            outFrame[0] = kGifTransRed;
+            outFrame[1] = kGifTransGreen;
+            outFrame[2] = kGifTransBlue;
+            outFrame[3] = kGifTransIndex;
+        }
+        else if(lastFrame &&
            lastFrame[0] == nextFrame[0] &&
            lastFrame[1] == nextFrame[1] &&
            lastFrame[2] == nextFrame[2])
@@ -616,9 +668,9 @@ typedef struct
 // write a 256-color (8-bit) image palette to the file
 void GifWritePalette( const GifPalette* pPal, FILE* f )
 {
-    fputc(0, f);  // first color: transparency
-    fputc(0, f);
-    fputc(0, f);
+    fputc(kGifTransRed, f);  // first color: transparency
+    fputc(kGifTransGreen, f);
+    fputc(kGifTransBlue, f);
 
     for(int ii=1; ii<(1 << pPal->bitDepth); ++ii)
     {
@@ -639,7 +691,7 @@ void GifWriteLzwImage(FILE* f, uint8_t* image, uint32_t left, uint32_t top,  uin
     fputc(0x21, f);
     fputc(0xf9, f);
     fputc(0x04, f);
-    fputc(0x05, f); // leave prev frame in place, this frame has transparency
+    fputc(0x09, f); // restore to background before rendering, this frame has transparency
     fputc(delay & 0xff, f);
     fputc((delay >> 8) & 0xff, f);
     fputc(kGifTransIndex, f); // transparent color index
@@ -792,10 +844,10 @@ bool GifBegin( GifWriter* writer, const char* filename, uint32_t width, uint32_t
     fputc(0, writer->f);     // pixels are square (we need to specify this because it's 1989)
 
     // now the "global" palette (really just a dummy palette)
-    // color 0: black
-    fputc(0, writer->f);
-    fputc(0, writer->f);
-    fputc(0, writer->f);
+    // color 0: transparency color
+    fputc(kGifTransRed, writer->f);
+    fputc(kGifTransGreen, writer->f);
+    fputc(kGifTransBlue, writer->f);
     // color 1: also black
     fputc(0, writer->f);
     fputc(0, writer->f);
@@ -828,7 +880,7 @@ bool GifWriteFrame( GifWriter* writer, const uint8_t* image, uint32_t width, uin
 {
     if(!writer->f) return false;
 
-    const uint8_t* oldImage = writer->firstFrame? NULL : writer->oldImage;
+    const uint8_t* oldImage = NULL; // render full frames; do not delta-encode
     writer->firstFrame = false;
 
     GifPalette pal;

@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,8 +18,8 @@ typedef struct {
 } Point;
 
 static void usage(const char *prog) {
-    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-so <out width>x<out height>] [-f <delay cs>] <x1,y1> [x2,y2 ...]\n", prog);
-    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -so rescales each frame from the input size, and -f sets frame delay in centiseconds (default 8 = 80ms).\n");
+    fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-so <out width>x<out height>] [-f <delay cs>] [-t <hex color>] <x1,y1> [x2,y2 ...]\n", prog);
+    fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -so rescales each frame from the input size, -f sets frame delay in centiseconds (default 8 = 80ms), and -t sets a transparency color like #ff00ff or ff00ff.\n");
     fprintf(stderr, "Example: %s -i ninja.png -s 80x114 -o ninja.gif 35,24 159,24 278,24 397,24\n", prog);
 }
 
@@ -71,6 +72,45 @@ static bool parse_size(const char *arg, int *out_w, int *out_h) {
     return true;
 }
 
+static int parse_hex_digit(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    c = (char)tolower((unsigned char)c);
+    if (c >= 'a' && c <= 'f') {
+        return 10 + (c - 'a');
+    }
+    return -1;
+}
+
+static bool parse_hex_color(const char *arg, uint8_t *r, uint8_t *g, uint8_t *b) {
+    if (!arg) {
+        return false;
+    }
+
+    const char *hex = arg;
+    if (hex[0] == '#') {
+        ++hex;
+    }
+
+    if (strlen(hex) != 6) {
+        return false;
+    }
+
+    int vals[6];
+    for (int i = 0; i < 6; ++i) {
+        vals[i] = parse_hex_digit(hex[i]);
+        if (vals[i] < 0) {
+            return false;
+        }
+    }
+
+    *r = (uint8_t)((vals[0] << 4) | vals[1]);
+    *g = (uint8_t)((vals[2] << 4) | vals[3]);
+    *b = (uint8_t)((vals[4] << 4) | vals[5]);
+    return true;
+}
+
 static void resize_nearest(const uint8_t *src, int src_w, int src_h, uint8_t *dst, int dst_w, int dst_h) {
     for (int y = 0; y < dst_h; ++y) {
         const int src_y = (y * src_h) / dst_h;
@@ -106,6 +146,16 @@ static bool copy_frame(uint8_t *dst, const uint8_t *src, int src_w, int src_h, i
     return true;
 }
 
+static void apply_transparency_color(uint8_t *pixels, int w, int h, uint8_t r, uint8_t g, uint8_t b) {
+    const size_t count = (size_t)w * (size_t)h;
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t *px = pixels + i * 4;
+        if (px[0] == r && px[1] == g && px[2] == b) {
+            px[3] = 0;
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         usage(argv[0]);
@@ -119,6 +169,10 @@ int main(int argc, char **argv) {
     int output_w = 0;
     int output_h = 0;
     uint32_t delay_cs = 8; // default to 80 ms per frame
+    bool transparency_color_set = false;
+    uint8_t transparency_r = 0;
+    uint8_t transparency_g = 0;
+    uint8_t transparency_b = 0;
 
     int argi = 1;
     for (; argi < argc; ++argi) {
@@ -187,6 +241,21 @@ int main(int argc, char **argv) {
             ++argi;
             continue;
         }
+        if (strcmp(arg, "-t") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "Missing value for -t\n");
+                usage(argv[0]);
+                return 1;
+            }
+            if (!parse_hex_color(argv[argi + 1], &transparency_r, &transparency_g, &transparency_b)) {
+                fprintf(stderr, "Invalid transparency color (expected hex like ff00ff or #ff00ff): %s\n", argv[argi + 1]);
+                usage(argv[0]);
+                return 1;
+            }
+            transparency_color_set = true;
+            ++argi;
+            continue;
+        }
         if (arg[0] == '-') {
             fprintf(stderr, "Unknown option: %s\n", arg);
             usage(argv[0]);
@@ -244,6 +313,10 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    if (transparency_color_set) {
+        GifSetTransparentColor(transparency_r, transparency_g, transparency_b);
+    }
+
     GifWriter writer = {0};
 
     if (!GifBegin(&writer, output_path, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
@@ -283,10 +356,14 @@ int main(int argc, char **argv) {
             break;
         }
 
-        const uint8_t *frame_to_write = frame_buffer;
+        uint8_t *frame_to_write = frame_buffer;
         if (scaled_buffer != frame_buffer) {
             resize_nearest(frame_buffer, frame_w, frame_h, scaled_buffer, output_w, output_h);
             frame_to_write = scaled_buffer;
+        }
+
+        if (transparency_color_set) {
+            apply_transparency_color(frame_to_write, output_w, output_h, transparency_r, transparency_g, transparency_b);
         }
 
         if (!GifWriteFrame(&writer, frame_to_write, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
