@@ -17,6 +17,33 @@ typedef struct {
     int y;
 } Point;
 
+typedef enum {
+    EXIT_ARGS_MISSING = 2,
+    EXIT_MISSING_INPUT_VALUE,
+    EXIT_MISSING_OUTPUT_VALUE,
+    EXIT_MISSING_SIZE_VALUE,
+    EXIT_INVALID_SIZE_VALUE,
+    EXIT_MISSING_OUTPUT_SIZE_VALUE,
+    EXIT_INVALID_OUTPUT_SIZE_VALUE,
+    EXIT_MISSING_DELAY_VALUE,
+    EXIT_INVALID_DELAY_VALUE,
+    EXIT_MISSING_TRANSPARENCY_VALUE,
+    EXIT_INVALID_TRANSPARENCY_VALUE,
+    EXIT_UNKNOWN_OPTION_VALUE,
+    EXIT_INPUT_REQUIRED,
+    EXIT_OUTPUT_REQUIRED,
+    EXIT_FRAME_SIZE_REQUIRED,
+    EXIT_COORDINATES_REQUIRED,
+    EXIT_POINTS_ALLOCATION_FAILED,
+    EXIT_INVALID_COORDINATE_VALUE,
+    EXIT_IMAGE_LOAD_FAILED,
+    EXIT_GIF_BEGIN_FAILED,
+    EXIT_FRAME_BUFFER_ALLOCATION_FAILED,
+    EXIT_SCALED_BUFFER_ALLOCATION_FAILED,
+    EXIT_FRAME_OUT_OF_BOUNDS,
+    EXIT_WRITE_FRAME_FAILED,
+} SpritechopExitCode;
+
 static void usage(const char *prog) {
     fprintf(stderr, "Usage: %s -i <input image> -o <output image> -s <width>x<height> [-so <out width>x<out height>] [-f <delay cs>] [-t <hex color>] <x1,y1> [x2,y2 ...]\n", prog);
     fprintf(stderr, "Options may appear in any order before the coordinates. Size uses the form 80x114. -so rescales each frame from the input size, -f sets frame delay in centiseconds (default 8 = 80ms), and -t sets a transparency color like #ff00ff or ff00ff.\n");
@@ -158,8 +185,9 @@ static void apply_transparency_color(uint8_t *pixels, int w, int h, uint8_t r, u
 
 int main(int argc, char **argv) {
     if (argc < 2) {
+        fprintf(stderr, "No arguments provided (exit code %d)\n", EXIT_ARGS_MISSING);
         usage(argv[0]);
-        return 1;
+        return EXIT_ARGS_MISSING;
     }
 
     const char *input_path = NULL;
@@ -179,63 +207,63 @@ int main(int argc, char **argv) {
         const char *arg = argv[argi];
         if (strcmp(arg, "-i") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -i\n");
+                fprintf(stderr, "Missing value for -i (exit code %d)\n", EXIT_MISSING_INPUT_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_INPUT_VALUE;
             }
             input_path = argv[++argi];
             continue;
         }
         if (strcmp(arg, "-o") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -o\n");
+                fprintf(stderr, "Missing value for -o (exit code %d)\n", EXIT_MISSING_OUTPUT_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_OUTPUT_VALUE;
             }
             output_path = argv[++argi];
             continue;
         }
         if (strcmp(arg, "-s") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -s\n");
+                fprintf(stderr, "Missing value for -s (exit code %d)\n", EXIT_MISSING_SIZE_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_SIZE_VALUE;
             }
             if (!parse_size(argv[argi + 1], &frame_w, &frame_h)) {
-                fprintf(stderr, "Invalid size (expected <width>x<height>): %s\n", argv[argi + 1]);
+                fprintf(stderr, "Invalid size (expected <width>x<height>): %s (exit code %d)\n", argv[argi + 1], EXIT_INVALID_SIZE_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_INVALID_SIZE_VALUE;
             }
             ++argi;
             continue;
         }
         if (strcmp(arg, "-so") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -so\n");
+                fprintf(stderr, "Missing value for -so (exit code %d)\n", EXIT_MISSING_OUTPUT_SIZE_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_OUTPUT_SIZE_VALUE;
             }
             if (!parse_size(argv[argi + 1], &output_w, &output_h)) {
-                fprintf(stderr, "Invalid output size (expected <width>x<height>): %s\n", argv[argi + 1]);
+                fprintf(stderr, "Invalid output size (expected <width>x<height>): %s (exit code %d)\n", argv[argi + 1], EXIT_INVALID_OUTPUT_SIZE_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_INVALID_OUTPUT_SIZE_VALUE;
             }
             ++argi;
             continue;
         }
         if (strcmp(arg, "-f") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -f\n");
+                fprintf(stderr, "Missing value for -f (exit code %d)\n", EXIT_MISSING_DELAY_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_DELAY_VALUE;
             }
             errno = 0;
             char *endptr = NULL;
             long parsed_delay = strtol(argv[argi + 1], &endptr, 10);
             if (errno != 0 || *endptr != '\0' || parsed_delay <= 0 || (unsigned long)parsed_delay > UINT32_MAX) {
-                fprintf(stderr, "Invalid frame delay (expected positive centiseconds): %s\n", argv[argi + 1]);
+                fprintf(stderr, "Invalid frame delay (expected positive centiseconds): %s (exit code %d)\n", argv[argi + 1], EXIT_INVALID_DELAY_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_INVALID_DELAY_VALUE;
             }
             delay_cs = (uint32_t)parsed_delay;
             ++argi;
@@ -243,41 +271,41 @@ int main(int argc, char **argv) {
         }
         if (strcmp(arg, "-t") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "Missing value for -t\n");
+                fprintf(stderr, "Missing value for -t (exit code %d)\n", EXIT_MISSING_TRANSPARENCY_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_MISSING_TRANSPARENCY_VALUE;
             }
             if (!parse_hex_color(argv[argi + 1], &transparency_r, &transparency_g, &transparency_b)) {
-                fprintf(stderr, "Invalid transparency color (expected hex like ff00ff or #ff00ff): %s\n", argv[argi + 1]);
+                fprintf(stderr, "Invalid transparency color (expected hex like ff00ff or #ff00ff): %s (exit code %d)\n", argv[argi + 1], EXIT_INVALID_TRANSPARENCY_VALUE);
                 usage(argv[0]);
-                return 1;
+                return EXIT_INVALID_TRANSPARENCY_VALUE;
             }
             transparency_color_set = true;
             ++argi;
             continue;
         }
         if (arg[0] == '-') {
-            fprintf(stderr, "Unknown option: %s\n", arg);
+            fprintf(stderr, "Unknown option: %s (exit code %d)\n", arg, EXIT_UNKNOWN_OPTION_VALUE);
             usage(argv[0]);
-            return 1;
+            return EXIT_UNKNOWN_OPTION_VALUE;
         }
         break;
     }
 
     if (!input_path) {
-        fprintf(stderr, "Input image is required (-i)\n");
+        fprintf(stderr, "Input image is required (-i) (exit code %d)\n", EXIT_INPUT_REQUIRED);
         usage(argv[0]);
-        return 1;
+        return EXIT_INPUT_REQUIRED;
     }
     if (!output_path) {
-        fprintf(stderr, "Output image is required (-o)\n");
+        fprintf(stderr, "Output image is required (-o) (exit code %d)\n", EXIT_OUTPUT_REQUIRED);
         usage(argv[0]);
-        return 1;
+        return EXIT_OUTPUT_REQUIRED;
     }
     if (frame_w == 0 || frame_h == 0) {
-        fprintf(stderr, "Frame size is required (-s <width>x<height>)\n");
+        fprintf(stderr, "Frame size is required (-s <width>x<height>) (exit code %d)\n", EXIT_FRAME_SIZE_REQUIRED);
         usage(argv[0]);
-        return 1;
+        return EXIT_FRAME_SIZE_REQUIRED;
     }
     if (output_w == 0 || output_h == 0) {
         output_w = frame_w;
@@ -286,31 +314,31 @@ int main(int argc, char **argv) {
 
     const int frame_count = argc - argi;
     if (frame_count <= 0) {
-        fprintf(stderr, "At least one coordinate is required\n");
+        fprintf(stderr, "At least one coordinate is required (exit code %d)\n", EXIT_COORDINATES_REQUIRED);
         usage(argv[0]);
-        return 1;
+        return EXIT_COORDINATES_REQUIRED;
     }
 
     Point *points = (Point *)malloc(sizeof(Point) * (size_t)frame_count);
     if (!points) {
-        fprintf(stderr, "Memory allocation failed\n");
-        return 1;
+        fprintf(stderr, "Memory allocation failed for coordinate list (exit code %d)\n", EXIT_POINTS_ALLOCATION_FAILED);
+        return EXIT_POINTS_ALLOCATION_FAILED;
     }
 
     for (int i = 0; i < frame_count; ++i) {
         if (!parse_coord(argv[argi + i], &points[i])) {
-            fprintf(stderr, "Invalid coordinate: %s (expected x,y)\n", argv[argi + i]);
+            fprintf(stderr, "Invalid coordinate: %s (expected x,y) (exit code %d)\n", argv[argi + i], EXIT_INVALID_COORDINATE_VALUE);
             free(points);
-            return 1;
+            return EXIT_INVALID_COORDINATE_VALUE;
         }
     }
 
     int img_w = 0, img_h = 0, channels = 0;
     uint8_t *img = stbi_load(input_path, &img_w, &img_h, &channels, 4);
     if (!img) {
-        fprintf(stderr, "Failed to load image '%s': %s\n", input_path, stbi_failure_reason());
+        fprintf(stderr, "Failed to load image '%s': %s (exit code %d)\n", input_path, stbi_failure_reason(), EXIT_IMAGE_LOAD_FAILED);
         free(points);
-        return 1;
+        return EXIT_IMAGE_LOAD_FAILED;
     }
 
     if (transparency_color_set) {
@@ -320,39 +348,41 @@ int main(int argc, char **argv) {
     GifWriter writer = {0};
 
     if (!GifBegin(&writer, output_path, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
-        fprintf(stderr, "Failed to open output GIF for writing\n");
+        fprintf(stderr, "Failed to open output GIF for writing (exit code %d)\n", EXIT_GIF_BEGIN_FAILED);
         stbi_image_free(img);
         free(points);
-        return 1;
+        return EXIT_GIF_BEGIN_FAILED;
     }
 
     uint8_t *frame_buffer = (uint8_t *)malloc((size_t)frame_w * (size_t)frame_h * 4);
     if (!frame_buffer) {
-        fprintf(stderr, "Memory allocation failed\n");
+        fprintf(stderr, "Memory allocation failed for frame buffer (exit code %d)\n", EXIT_FRAME_BUFFER_ALLOCATION_FAILED);
         GifEnd(&writer);
         stbi_image_free(img);
         free(points);
-        return 1;
+        return EXIT_FRAME_BUFFER_ALLOCATION_FAILED;
     }
     uint8_t *scaled_buffer = frame_buffer;
     if (output_w != frame_w || output_h != frame_h) {
         scaled_buffer = (uint8_t *)malloc((size_t)output_w * (size_t)output_h * 4);
         if (!scaled_buffer) {
-            fprintf(stderr, "Memory allocation failed\n");
+            fprintf(stderr, "Memory allocation failed for scaled buffer (exit code %d)\n", EXIT_SCALED_BUFFER_ALLOCATION_FAILED);
             free(frame_buffer);
             GifEnd(&writer);
             stbi_image_free(img);
             free(points);
-            return 1;
+            return EXIT_SCALED_BUFFER_ALLOCATION_FAILED;
         }
     }
 
     bool ok = true;
+    SpritechopExitCode exit_code = EXIT_SUCCESS;
     for (int i = 0; i < frame_count; ++i) {
         if (!copy_frame(frame_buffer, img, img_w, img_h, frame_w, frame_h, points[i])) {
-            fprintf(stderr, "Frame %d with origin (%d,%d) is out of bounds for image %dx%d\n",
-                    i + 1, points[i].x, points[i].y, img_w, img_h);
+            fprintf(stderr, "Frame %d with origin (%d,%d) is out of bounds for image %dx%d (exit code %d)\n",
+                    i + 1, points[i].x, points[i].y, img_w, img_h, EXIT_FRAME_OUT_OF_BOUNDS);
             ok = false;
+            exit_code = EXIT_FRAME_OUT_OF_BOUNDS;
             break;
         }
 
@@ -367,8 +397,9 @@ int main(int argc, char **argv) {
         }
 
         if (!GifWriteFrame(&writer, frame_to_write, (uint32_t)output_w, (uint32_t)output_h, delay_cs, 8, false)) {
-            fprintf(stderr, "Failed to write frame %d\n", i + 1);
+            fprintf(stderr, "Failed to write frame %d (exit code %d)\n", i + 1, EXIT_WRITE_FRAME_FAILED);
             ok = false;
+            exit_code = EXIT_WRITE_FRAME_FAILED;
             break;
         }
     }
@@ -383,9 +414,9 @@ int main(int argc, char **argv) {
 
     if (!ok) {
         remove(output_path);
-        return 1;
+        return exit_code;
     }
 
     printf("Wrote %d frame(s) to %s (%dx%d)\n", frame_count, output_path, output_w, output_h);
-    return 0;
+    return EXIT_SUCCESS;
 }
